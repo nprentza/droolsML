@@ -34,7 +34,11 @@ public class Main {
             frequencyTables.forEach(ft -> System.out.println(ft.toString()));
             Frequency fHighCovLowError = emlaSession.calculateFrequencyHighCoverageLowError(frequencyTables);
             System.out.println("\nUpdate DRL with the *best* frequency selected:" + fHighCovLowError.toString());
-            agentApp.updateDrl(frequencyTables, fHighCovLowError);
+            Predictor bestPredictor = Predictor.fromFrequency(fHighCovLowError);
+            // Uncomment the following line to override the best frequency produced by EMLA learning session.
+            // Experiment with the age value to see whether it creates a conflict with the gap analysis from drools-verifier.
+            // bestPredictor = Predictor.build("age", ">", 50, "allow");
+            agentApp.updateDrl(frequencyTables, bestPredictor);
             //  repeat evaluation
             System.out.println("\nRe-evaluate the DRL.");
             assessment = agentApp.evaluateAgentRequests();

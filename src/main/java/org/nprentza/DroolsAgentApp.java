@@ -8,7 +8,6 @@ import org.drools.verifier.report.components.MissingRange;
 import org.drools.verifier.report.components.Severity;
 import org.drools.verifier.report.components.VerifierMessageBase;
 import org.emla.dbcomponent.Dataset;
-import org.emla.learning.Frequency;
 import org.emla.learning.FrequencyTable;
 import org.drools.model.codegen.ExecutableModelProject;
 import org.kie.api.KieBase;
@@ -28,8 +27,10 @@ public class DroolsAgentApp {
     private List<Integer> deny;
 
     private String DRL = DrlConverter.preamble()
-            + DrlConverter.rule("AllowAdmin", "role", "admin", "allow")
-            + DrlConverter.rule("DenyGuest", "role", "guest", "deny")
+            + DrlConverter.rule("AllowAdmin", "role", "==", "admin", "allow")
+            + DrlConverter.rule("DenyGuest", "role", "==", "guest", "deny")
+            // Uncomment this rule to create an upper bound for the gap:
+            // + DrlConverter.rule("DenyDead", "age", ">",200, "deny")
             + DrlConverter.rule("DenyChildren", "age", "<",19, "deny");
 
     public DroolsAgentApp(){
@@ -37,13 +38,31 @@ public class DroolsAgentApp {
         kieBase = new KieHelper().addContent(DRL, "org/nprentza/dataAccess.drl").build(ExecutableModelProject.class);
     }
 
-    public void updateDrl(List<FrequencyTable> frequencyTables, Frequency bestFrequency){
+    public void updateDrl(List<FrequencyTable> frequencyTables, Predictor predictor) {
+        Verifier verifier = VerifierBuilderFactory.newVerifierBuilder().newVerifier();
+        verifier.addResourcesToVerify(new ReaderResource(new StringReader(DRL)), ResourceType.DRL);
+        verifier.fireAnalysis();
+        VerifierReport result = verifier.getResult();
+
+        IntGap gap = new IntGap();
+        for (MissingRange message : result.getRangeCheckCauses()) {
+            gap.addBound(message.getOperator(), message.getValueAsString());
+        }
+
         /*
             if bestFrequency condition is not already in the drl then add it
             else    process frequencyTables to find the next best frequency and repeat the process
          */
-        DRL += "\n" + DrlConverter.frequencyToDrlRule(bestFrequency);
-        kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
+        String field = predictor.field();
+        if (!field.equals("age") || gap.contains((Integer) predictor.value())) {
+            DRL += "\n" + DrlConverter.predictorToDrlRule(predictor);
+            kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
+        } else {
+            // TODO take the next best frequency and repeat the gap analysis.
+            throw new IllegalArgumentException("The proposed predictor (" + predictor
+                    + ") does not fit in the '" + field
+                    + "' gap (" + gap + ").");
+        }
     }
 
     public void loadAgentsFromData(Dataset ds){

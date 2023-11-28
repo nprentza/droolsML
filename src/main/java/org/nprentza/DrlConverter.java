@@ -1,19 +1,13 @@
 package org.nprentza;
 
-import org.emla.learning.Frequency;
-
 public final class DrlConverter {
 
     private DrlConverter() {
     }
 
-    public static String frequencyToDrlRule(Frequency frequency) {
-        String field = frequency.getPredictorValues().getLeft();
-        String value = frequency.getPredictorValues().getRight().toString();
-        String decision = frequency.getBestTargetValue();
-        String ruleName = decision + value;
-
-        return rule(ruleName, field, value, decision);
+    public static String predictorToDrlRule(Predictor predictor) {
+        String ruleName = predictor.target() + predictor.value();
+        return rule(ruleName, predictor.field(), predictor.operator(), predictor.value().toString(), predictor.target());
     }
 
     public static String preamble() {
@@ -27,37 +21,29 @@ public final class DrlConverter {
                 "\n";
     }
 
-    public static String rule(String ruleName, String field, String value, String decision) {
-        return "rule '" + ruleName + "' when\n" +
-                "  $a: Agent( " + equalityCheck(field, value) + " ) \n" +
-                "then\n" +
-                "  $a.setGrantAccess( " + grantAccess(decision) + " );\n" +
-                "  " + decision + ".add( $a.getId() );\n" +
-                "end\n";
-    }
-
     public static String rule(String ruleName, String field, String operator, Object value, String decision) {
+        return rule(ruleName, condition(field, operator, value), decision);
+    }
+
+    public static String rule(String ruleName, String condition, String decision) {
         return "rule '" + ruleName + "' when\n" +
-                "  $a: Agent( " + arithmeticOperator(field, operator, value) + " ) \n" +
+                "  $a: Agent( " + condition + " ) \n" +
                 "then\n" +
                 "  $a.setGrantAccess( " + grantAccess(decision) + " );\n" +
                 "  " + decision + ".add( $a.getId() );\n" +
                 "end\n";
     }
 
-    private static String equalityCheck(String field, String value) {
-        if (field.equals("role")) {
-            return "role == " + AgentRole.class.getSimpleName() + "." + AgentRole.valueOf(value.toUpperCase()).name();
-        }
-        return field + " == " + value;
+    private static String condition(String field, String operator, Object value) {
+        return field + " " + operator + " " + valueToDrl(field, value);
     }
 
-    private static String arithmeticOperator(String field, String operator, Object value){
-        if (field.equals("age") && (value instanceof Integer) ){
-            return "age " + operator + " " + (int) value;
-        }
-        return field + " " + operator + " " + value;
+    private static String valueToDrl(String field, Object value) {
+        return field.equals("role")
+                ? AgentRole.class.getSimpleName() + "." + AgentRole.valueOf(value.toString().toUpperCase()).name()
+                : value.toString();
     }
+
     private static boolean grantAccess(String decision) {
         return decision.equals("allow");
     }
