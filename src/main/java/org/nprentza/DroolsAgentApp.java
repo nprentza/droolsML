@@ -8,16 +8,23 @@ import org.drools.verifier.report.components.MissingRange;
 import org.drools.verifier.report.components.Severity;
 import org.drools.verifier.report.components.VerifierMessageBase;
 import org.emla.dbcomponent.Dataset;
-import org.emla.learning.FrequencyTable;
 import org.drools.model.codegen.ExecutableModelProject;
+import org.emla.learning.oner.Frequency;
 import org.kie.api.KieBase;
 import org.kie.api.io.ResourceType;
 import org.kie.api.runtime.KieSession;
 import org.kie.internal.utils.KieHelper;
+import tech.tablesaw.api.ColumnType;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class DroolsAgentApp {
 
@@ -25,6 +32,7 @@ public class DroolsAgentApp {
     private List<Agent> agentRequests;
     private List<Integer> allow;
     private List<Integer> deny;
+    private Map<String, List<IntGap>> intGaps;
 
     private String DRL = DrlConverter.preamble()
             + DrlConverter.rule("AllowAdmin", "role", "==", "admin", "allow")
@@ -38,30 +46,17 @@ public class DroolsAgentApp {
         kieBase = new KieHelper().addContent(DRL, "org/nprentza/dataAccess.drl").build(ExecutableModelProject.class);
     }
 
-    public void updateDrl(List<FrequencyTable> frequencyTables, Predictor predictor) {
-        Verifier verifier = VerifierBuilderFactory.newVerifierBuilder().newVerifier();
-        verifier.addResourcesToVerify(new ReaderResource(new StringReader(DRL)), ResourceType.DRL);
-        verifier.fireAnalysis();
-        VerifierReport result = verifier.getResult();
-
-        IntGap gap = new IntGap();
-        for (MissingRange message : result.getRangeCheckCauses()) {
-            gap.addBound(message.getOperator(), message.getValueAsString());
-        }
-
-        /*
-            if bestFrequency condition is not already in the drl then add it
-            else    process frequencyTables to find the next best frequency and repeat the process
-         */
-        String field = predictor.field();
-        if (!field.equals("age") || gap.contains((Integer) predictor.value())) {
-            DRL += "\n" + DrlConverter.predictorToDrlRule(predictor);
-            kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
-        } else {
-            // TODO take the next best frequency and repeat the gap analysis.
-            throw new IllegalArgumentException("The proposed predictor (" + predictor
-                    + ") does not fit in the '" + field
-                    + "' gap (" + gap + ").");
+    //  assuming ruleConditions contains a rule on a numerical field type
+    public void updateDrl(Frequency ruleCondition, ColumnType fieldType){
+        if (fieldType==ColumnType.INTEGER){
+            List<Double> rangeValues = new ArrayList<>();
+            ruleCondition.getOperatorValuePairs().forEach(p -> rangeValues.add((double)p.getRight()));
+            Collections.sort(rangeValues);
+            if (this.intGapsContainFeatureRange(ruleCondition.getFeatureName(), rangeValues.get(0).intValue(), rangeValues.get(rangeValues.size()-1).intValue())){
+                // add
+                DRL += "\n" + DrlConverter.predictorToDrlRule(Predictor.fromFrequency(ruleCondition));
+                kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
+            }
         }
     }
 
@@ -77,12 +72,59 @@ public class DroolsAgentApp {
         }
     }
 
+    private boolean intGapsContainFeatureRange(String featureName, int lowValue, int highValue){
+        if (!intGaps.containsKey(featureName)){
+            return false;
+        }else{
+            return intGaps.get(featureName).stream().filter(gap -> gap.containsRange(lowValue,highValue)).findAny().isPresent();
+        }
+    }
+
     public DrlAssessment evaluateAgentRequests(){
+
+        //  gap-analysis:
         Verifier verifier = VerifierBuilderFactory.newVerifierBuilder().newVerifier();
         verifier.addResourcesToVerify(new ReaderResource(new StringReader(DRL)), ResourceType.DRL);
         verifier.fireAnalysis();
         VerifierReport result = verifier.getResult();
 
+        //  add gap analysis results for integer fields (currently gaps on string/enum fields are not returned as 'gaps')
+        this.intGaps = new HashMap<>();
+        for (MissingRange message : result.getRangeCheckCauses()) {
+            IntGap gap = new IntGap();
+            gap.addBound(message.getOperator(), message.getValueAsString());
+            if (intGaps.containsKey(message.getField().getName())){
+                intGaps.get(message.getField().getName()).add(gap);
+            }else{
+                List<IntGap> fieldGaps = new ArrayList<>(); fieldGaps.add(gap);
+                intGaps.put(message.getField().getName(),fieldGaps);
+            }
+        }
+        printGapAnalysisResults(result);
+
+        //  evaluate rules on data:
+
+        KieSession kieSession = kieBase.newKieSession();
+        allow = new ArrayList<>();
+        kieSession.setGlobal("allow", allow);
+        deny = new ArrayList<>();
+        kieSession.setGlobal("deny", deny);
+
+        for (Agent a : agentRequests){
+            kieSession.insert(a);
+        }
+
+        kieSession.fireAllRules();
+
+        // return the results of DRL's assessment
+        Set<Integer> conflicts = allow.stream().filter(deny::contains).collect(Collectors.toSet());
+        Set<Integer> requestsProcessed = Stream.concat(allow.stream().distinct(),deny.stream().distinct()).distinct().collect(Collectors.toSet());
+        DrlAssessment assessment = new DrlAssessment((double)(requestsProcessed.size()) / agentRequests.size(), conflicts.size());
+        return assessment;
+    }
+
+    private void printGapAnalysisResults(VerifierReport result){
+        System.out.println("\n**** Gap analysis results ******************************************************************************");
         System.out.println("===== NOTES =====");
         for (VerifierMessageBase message : result.getBySeverity(Severity.NOTE)) {
             System.out.println(message);
@@ -105,22 +147,6 @@ public class DroolsAgentApp {
                     "[.operator = '" + message.getOperator().getOperatorString() + "'] " +
                     "[.getValueAsString() = " + message.getValueAsString()+"]");
         }
-
-        KieSession kieSession = kieBase.newKieSession();
-        allow = new ArrayList<>();
-        kieSession.setGlobal("allow", allow);
-        deny = new ArrayList<>();
-        kieSession.setGlobal("deny", deny);
-
-        for (Agent a : agentRequests){
-            kieSession.insert(a);
-        }
-
-        kieSession.fireAllRules();
-
-        // return the results of DRL's assessment
-        DrlAssessment assessment = new DrlAssessment((double)(allow.size() + deny.size()) / agentRequests.size());
-        return assessment;
     }
 
     public List<Integer> getRequestsNotCovered(){

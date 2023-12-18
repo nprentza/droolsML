@@ -1,14 +1,22 @@
 package org.nprentza;
 
-import org.emla.learning.Frequency;
+import org.apache.commons.lang3.tuple.Pair;
+import org.emla.learning.LearningUtils;
+import org.emla.learning.oner.Frequency;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public interface Predictor {
 
     String field();
 
-    String operator();
+    List<Pair<LearningUtils.Operator, Object>> conditions();
 
-    Object value();
+    //String operator();
+
+    //Object value();
 
     String target();
 
@@ -16,13 +24,16 @@ public interface Predictor {
      * Create a facade for the EMLA API.
      */
     static Predictor fromFrequency(Frequency frequency) {
-        String field = frequency.getPredictorValues().getKey();
-        Object value = frequency.getPredictorValues().getValue();
-        String target = frequency.getBestTargetValue();
-        return build(field, "==", value, target);
+        String field = frequency.getFeatureName(); //frequency.getPredictorValues().getKey();
+        List<Pair<LearningUtils.Operator, Object>> conditions = new ArrayList<>();
+        frequency.getOperatorValuePairs().forEach(condition -> {
+            conditions.add(condition);
+        });
+        String target = frequency.getMajorityTargetClass(); // frequency.getBestTargetValue();
+        return build(field, conditions, target);
     }
 
-    static Predictor build(String field, String operator, Object value, String target) {
+    static Predictor build(String field, List<Pair<LearningUtils.Operator, Object>> conditions, String target) {
         return new Predictor() {
             @Override
             public String field() {
@@ -30,13 +41,8 @@ public interface Predictor {
             }
 
             @Override
-            public String operator() {
-                return operator;
-            }
-
-            @Override
-            public Object value() {
-                return value;
+            public List<Pair<LearningUtils.Operator, Object>> conditions() {
+                return conditions;
             }
 
             @Override
@@ -46,7 +52,8 @@ public interface Predictor {
 
             @Override
             public String toString() {
-                return field + operator + value + " => " + target;
+                return conditions.stream().map(c -> field + c.getLeft().toString() + c.getRight().toString()).collect(Collectors.joining(", "))
+                        + " => " + target;
             }
         };
     }

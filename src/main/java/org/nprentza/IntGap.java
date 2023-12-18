@@ -11,7 +11,7 @@ public class IntGap {
      * drools-verifier friendly.
      */
     public void addBound(Operator operator, String valueAsString) {
-        addBound(operator.getOperatorString(), Integer.parseInt(valueAsString));
+        addBound(operator.getOperatorString(), ((Double) Double.parseDouble(valueAsString)).intValue());
     }
 
     /**
@@ -38,6 +38,15 @@ public class IntGap {
 
     boolean contains(int number) {
         return number > lowerBound && number < upperBound;
+    }
+
+    boolean containsRange (int lowValue, int highValue){
+            for (int i = lowValue; i<=highValue; i++ ){
+                if ( !(i > lowValue && i < upperBound) ){
+                    return true;
+                }
+            }
+        return false;
     }
 
     @Override

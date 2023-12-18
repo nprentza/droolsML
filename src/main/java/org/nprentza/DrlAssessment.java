@@ -5,8 +5,8 @@ public class DrlAssessment {
     private int errors;
     private int conflicts;
 
-    public DrlAssessment(double coverage){
-        this.coverage=coverage; errors=0; conflicts=0;
+    public DrlAssessment(double coverage, int conflicts){
+        this.coverage=coverage; errors=0; this.conflicts=conflicts;
     }
 
     public double getCoverage() {
