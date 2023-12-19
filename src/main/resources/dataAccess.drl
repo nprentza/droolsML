@@ -20,8 +20,9 @@ then
 	deny.add( $a.getId() );
 end
 
-rule 'IsJunior' when
+rule 'DenyChildren' when
 	$a: Agent( age < 19 )
 then
-    System.out.println('Agent is junior');
+    $a.setGrantAccess( false );
+    deny.add( $a.getId() );
 end
