@@ -60,7 +60,7 @@ end
 - The DRL is revised with the addition of rule (4) for which we know that a gap exists for `age >= 32 and age <=42`: 
 ```
 rule 'allow_age32_age42' when
-    $a: Agent( role == AgentRole.ADMIN )
+    $a: Agent( age >= 32 && age <= 42 )
 then
     $a.setGrantAccess( true );
     allow.add( $a.getId() );
