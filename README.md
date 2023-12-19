@@ -1,4 +1,4 @@
-**DRL rules from data: Drools-ML integration POC **
+### Drools-ML integration POC
 
 [DROOLS-7572](https://issues.redhat.com/browse/DROOLS-7572)
 
