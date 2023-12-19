@@ -1,7 +1,8 @@
-role,experience,access
-admin,senior,allow
-guest,junior,deny
-contributor,junior,allow
-admin,senior,allow
-guest,senior,deny
-contributor,senior,allow
+role,experience,age,access
+admin,senior,38,allow
+guest,junior,28,deny
+contributor,junior,32,allow
+admin,senior,45,allow
+guest,senior,44,deny
+contributor,senior,42,allow
+guest,junior,18,deny

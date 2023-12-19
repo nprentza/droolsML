@@ -1,20 +1,27 @@
 package org.nprentza;
 
-import org.nprentza.Agent
+import org.nprentza.Agent;
+import org.nprentza.AgentRole;
 
 global java.util.List allow;
 global java.util.List deny;
 
-rule AllowAdmin when
-	$a: Agent( role == "admin" )
+rule 'AllowAdmin' when
+	$a: Agent( role == AgentRole.ADMIN )
 then
     $a.setGrantAccess( true );
 	allow.add( $a.getId() );
 end
 
-rule DenyGuest when
-	$a: Agent( role == "guest" )
+rule 'DenyGuest' when
+	$a: Agent( role == AgentRole.GUEST )
 then
     $a.setGrantAccess( false );
 	deny.add( $a.getId() );
+end
+
+rule 'IsJunior' when
+	$a: Agent( age < 19 )
+then
+    System.out.println('Agent is junior');
 end
