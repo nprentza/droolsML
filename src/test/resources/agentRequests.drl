@@ -1,0 +1,26 @@
+package org.nprentza.dataaccess;
+
+import org.nprentza.dataaccess.AgentDatapoint;
+global java.util.Map dataPredictors;
+
+
+rule 'rule0' when
+  $a: AgentDatapoint( role ==  'admin'  ) 
+then
+ $a.setPrediction( 'allow' );
+ update( $a ); 
+end
+
+rule 'rule1' when
+  $a: AgentDatapoint( role ==  'guest'  ) 
+then
+ $a.setPrediction( 'deny' );
+ update( $a ); 
+end
+
+rule 'rule2' when
+  $a: AgentDatapoint( role ==  'contributor'  ) 
+then
+ $a.setPrediction( 'allow' );
+ update( $a ); 
+end

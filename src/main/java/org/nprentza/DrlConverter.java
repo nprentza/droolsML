@@ -1,78 +1,81 @@
 package org.nprentza;
 
-import org.emla.learning.LearningUtils;
-
 import java.util.List;
 import java.util.stream.Collectors;
 
-public final class DrlConverter {
+public abstract class DrlConverter {
 
-    private DrlConverter() {
-    }
+    public static String drlPackage;
+    public static String datapointClassName;
+    public static String datapointClassCanonicalName;
 
-    public static String predictorToDrlRule(Predictor predictor) {
-        String ruleName = predictor.target() + "_" + //predictor.value();
-                predictor.conditions().stream().map(c->predictor.field() + c.getRight().toString()).collect(Collectors.joining("_"));
-
-        String conditions = predictor.conditions().stream().map(c -> predictor.field() + " " + c.getLeft().getValue() + " " + c.getRight().toString())
+    public static String predictorToDrlRule(Predictor predictor, String ruleName){
+        String conditions = predictor.conditions().stream()
+                .map(c -> predictor.field() + " " + c.getLeft().getValue() + " " + addQuotes(c.getRight()))
                 .collect(Collectors.joining(" && "));
         return rule(ruleName, conditions, predictor.target());
     }
 
+    private static String addQuotes(Object value){
+        if (value.getClass().equals(String.class)){
+            return " '" + value.toString() + "' ";
+        }else {return value.toString();}
+    }
+
     public static String preamble() {
-        return "package org.nprentza;\n" +
+        return "package " + drlPackage + ";\n" +   //  "package org.nprentza.dataaccess;\n"
                 "\n" +
-                "import " + Agent.class.getCanonicalName() + ";\n" +
-                "import " + AgentRole.class.getCanonicalName() + ";\n" +
-                "\n" +
-                "global java.util.List allow;\n" +
-                "global java.util.List deny;\n" +
+                "import " + datapointClassCanonicalName + ";\n" +   // "import " + AgentDatapoint.class.getCanonicalName() + ";\n"
+                "global java.util.Map dataPredictors;\n" +
                 "\n";
     }
 
-    public static String rule(String ruleName, String field, String operator, Object value, String decision) {
+    public String rule(String ruleName, String field, String operator, Object value, String decision, String datapointClassName) {
         return rule(ruleName, condition(field, operator, value), decision);
     }
 
-    public static String rule(String ruleName, List<String> conditions, String decision){
+    public String rule(String ruleName, List<String> conditions, String decision, String datapointClassName){
         return "rule '" + ruleName + "' when\n" +
                 conditionsToDrl(conditions) +
                 "then\n" +
-                "  $a.setGrantAccess( " + grantAccess(decision) + " );\n" +
-                "  " + decision + ".add( $a.getId() );\n" +
+                " $a.setPrediction( '" + decision + "' ); \n" +
+                " update( $a ); \n" +
                 "end\n";
     }
 
-    private static String conditionsToDrl(List<String> conditions){
+    private String conditionsToDrl(List<String> conditions){
         if (conditions.size()>0){
-            return conditions.stream().map(c -> "  $a: Agent( " + c + " ) \n").collect(Collectors.joining());
+            return conditions.stream().map(c -> "  $a: " + datapointClassName + "( " + c + " ) \n").collect(Collectors.joining());
         }else {return "";}
     }
 
     public static String rule(String ruleName, String condition, String decision) {
         return "rule '" + ruleName + "' when\n" +
-                "  $a: Agent( " + condition + " ) \n" +
+                "  $a: " + datapointClassName + "( " + condition + " ) \n" +
                 "then\n" +
-                "  $a.setGrantAccess( " + grantAccess(decision) + " );\n" +
-                "  " + decision + ".add( $a.getId() );\n" +
+                " $a.setPrediction( '" + decision + "' );\n" +
+                " update( $a ); \n" +
+                " dataPredictors.put( $a.getId(), '" + ruleName + "' ); \n" +
                 "end\n";
     }
 
-    private static String condition(String field, String operator, Object value) {
-        return field + " " + operator + " " + valueToDrl(field, value);
+    private String condition(String field, String operator, Object value) {
+        return field + " " + operator + valueToDrl(field, value);
     }
 
-    private static String condition(String field, LearningUtils.Operator operator, Object value){
-        return field + " " + operator.toString() + " " + valueToDrl(field, value);
+    private String quote(String s) {
+        return new StringBuilder()
+                .append('\'')
+                .append(s)
+                .append('\'')
+                .toString();
     }
 
-    private static String valueToDrl(String field, Object value) {
-        return field.equals("role")
-                ? AgentRole.class.getSimpleName() + "." + AgentRole.valueOf(value.toString().toUpperCase()).name()
-                : value.toString();
-    }
-
-    private static boolean grantAccess(String decision) {
-        return decision.equals("allow");
+    private String valueToDrl(String field, Object value) {
+        if (value instanceof Number){
+            return value.toString();
+        }else {
+            return quote(value.toString());
+        }
     }
 }
