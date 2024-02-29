@@ -2,71 +2,177 @@
 
 [DROOLS-7572](https://issues.redhat.com/browse/DROOLS-7572)
 
-The idea is to combine the domain expert's knowledge, that is available in a symbolic form (DRL rules), with rules that can be derived from data, using a machine learning algorithm, 
-to build a more comprehensive Drools application. 
+Hybrid AI systems often leverage symbolic reasoning for high-level decision-making and machine learning for data-driven tasks, resulting in more robust and flexible systems.
+This POC explores such a hybrid AI approach, the integration of drools rule-based engine with [emla](https://github.com/nprentza/emla),
+a machine learning framework that provides functionality for learning rules from data. 
 
-The POC currently includes a very basic example that shows,
-- how a DRL can be validated for its coverage on a given set of data, 
-- how the [emla](https://github.com/nprentza/emla) libray can be used to discover additional rules for cases not covered by the DRL (if any), and,
-- how the gap-analysis provided by the `drools-verifier` module can be incorporated into the solution to ensure that a rule is missing before adding it to the DRL.
+The POC currently demonstrates two basic use-cases, 
+1. automatic DRL file (rules) creation from data,
+2. DRL validation and automatic updates from data, to cover gaps or fix errors.
 
 While the process of combining new with existing rules is not just about making sure that the rule does not already exist, for the purpose of this POC only this particular control was taken into account.
 
-**The `DroolsAgentApp` example:**
-- The initial DRL contains the following rules:
-```
-rule 'AllowAdmin' when
-	$a: Agent( role == "admin" )
-then
-    $a.setGrantAccess( true );
-	allow.add( $a.getId() );
-end
-rule 'DenyGuest' when
-	$a: Agent( role == "guest" )
-then
-    $a.setGrantAccess( false );
-	deny.add( $a.getId() );
-end
-rule 'DenyChildren' when
-	$a: Agent( age < 19 )
-then
-    $a.setGrantAccess( false );
-    deny.add( $a.getId() );
-end
-```
-- A csv file contains 7 `Agent` requests: 2 requests from `admin` agents, 3 requests from `guest` and 2 requests from `contributor` agents.
-- Data from the csv file are used to insert `Agent` facts into the working memory.
-- To validate the initial DRL for data coverage we call `fireAllRules()` and then check which facts have not been processed.
+---
 
-**(a) identify the cases not covered:**
-- The validation results showed that the initial DRL does not support the 2 `contributor` agent requests:
+The **DataaccessApp** example.
+
+The tabular dataset below holds a number of resource access requests from different users and the decision to these requests (allow, deny).
+
+**Dataset**
 
 | role        | experience | age | access |
-| ----------- | ---------- | --- | ------ | 
-| contributor | junior     | 32  | allow  |
+| ----------- | ---------- | --- | ------ |
+| admin       | senior     | 40  | allow  |
+| admin       | senior     | 45  | allow  |
+| admin       | senior     | 42  | allow  |
 | contributor | senior     | 42  | allow  |
+| contributor | junior     | 30  | deny   |
+| contributor | junior     | 32  | deny   |
+| contributor | senior     | 43  | allow  |
+| guest       | junior     | 30  | deny   |
+| guest       | senior     | 45  | deny   |
 
-**(b) use `emla` to derive rules for these cases:**
-- Rules derived from the `OneR` algorithm:
+
+1. **DRL from data use-case**
+
+- use `emla` to learn rules for the entire dataset, select one-rule for `allow` and one-rule for `deny` to initiate the DRL.
+- the goal is to develop a DRL that supports the dataset with `100% coverage` and `0 errors`.
+- `emla` returns the following rules per predictor (`role`,`experience`,`age`):
 ```
-(1) IF role == contributor THEN allow. (Coverage= 100%, error=0%)
-(2) IF experience == junior THEN allow. (Coverage= 50%, error=0%)
-(3) IF experience == senior THEN allow. (Coverage= 50%, error=0%)
-(4) IF (age >= 32.0 AND age <= 42.0) then allow. (Coverage= 100%, error=0%)
+** rules for predictor 'role':
+
+- IF role == admin THEN allow, (coverage=0.33, accuracy=1, assessment=0.33)
+- IF role == contributor THEN allow, (coverage=0.44, accuracy=0.5, assessment=0.22)
+- IF role == guest THEN deny, (coverage=0.22, accuracy=1, assessment=0.22)
+
+** rules for predictor 'experience':
+
+- IF experience == senior THEN allow, (coverage=0.67, accuracy=0.83, assessment=0.56)
+- IF experience == junior THEN deny, (coverage=0.33, accuracy=1, assessment=0.33)
+
+** rules for predictor 'age':
+
+- IF (age > 36.0 AND age <= 45.0) THEN allow, (coverage=0.67, accuracy=0.83, assessment=0.56)
+- IF age <= 36.0 THEN deny, (coverage=0.33, accuracy=1, assessment=0.33)
 ```
-**(c) revise the initial DRL:**
-- Rules with coverage=100% and error=0% are preferred.
-- `drools-verifier` gap-analysis results showed that there exist a gap for the field `age` and the range of values `>=19`.
-- The DRL is revised with the addition of rule (4) for which we know that a gap exists for `age >= 32 and age <=42`: 
+- the solution selects rules with the highest assessment, a metric that considers both the coverage and the accuracy of the rule.
+- for `allow` the solution will select one of the rules with assessment 0.56 and for `deny` one of the rules with assessment 0.33.
+- the DRL is initialized with one-rule for each {`allow`,`deny`} :
+
 ```
-rule 'allow_age32_age42' when
-    $a: Agent( age >= 32 && age <= 42 )
+rule 'rule0' when
+  $a: AgentDatapoint( age > 36.0 && age <= 45.0 ) 
 then
-    $a.setGrantAccess( true );
-    allow.add( $a.getId() );
+ $a.setPrediction( 'allow' );
+ update( $a ); 
+end
+
+rule 'rule1' when
+  $a: AgentDatapoint( age <= 36.0 ) 
+then
+ $a.setPrediction( 'deny' );
+ update( $a ); 
+end
+```
+- the DRL is then is validated against the entire dataset: `Coverage=100%, Errors=1`
+- `rule0` erroneously supports the last datapoint in the dataset:
+
+  | role        | experience | age | access |
+  | ----------- | ---------- | --- | ------ |
+  | guest       | senior     | 45  | deny   |
+
+- the process will try to learn a rule to fix this error.
+- the learning/selection of rules is repeated but this time `emla` uses only the subset of data that `rule0` supports.
+- the following rules are returned:
+```
+** rules for predictor 'role':
+
+- IF role == admin THEN allow, (coverage=0.5, accuracy=1, assessment=0.5)
+- IF role == contributor THEN allow, (coverage=0.33, accuracy=1, assessment=0.33)
+- IF role == guest THEN deny, (coverage=0.17, accuracy=1, assessment=0.17)
+
+** rules for predictor `experience`:
+
+- IF experience == senior THEN allow, (coverage=1, accuracy=0.83, assessment=0.83) 
+
+** rules for predictor `age`:
+
+- IF age <= 45.0 THEN allow, (coverage=1, accuracy=0.83, assessment=0.83) 
+```
+- the learning process with select one-rule for `deny` to fix the error and update the DRL with `rule2`: 
+```
+rule 'rule2' when
+  $a: AgentDatapoint( role ==  'guest'  ) 
+then
+ $a.setPrediction( 'deny' );
+ update( $a ); 
+end
+```
+- the DRL is then re-validated against the entire dataset: `Coverage=100%, Errors=0`.
+- at this point the learning goal is reached and the process terminates.
+
+
+2. **Validating & updating existing DRL use-case**
+
+- use-case (2) shows how the `drools-verifier` module can be incorporated into the solution to ensure that a rule is missing before adding it to the DRL.
+- for this integration we can currently use only numerical fields.
+- the initial DRL contains the following rules:
+```
+rule 'rule0' when
+  $a: AgentDatapoint( role ==  'admin'  ) 
+then
+ $a.setPrediction( 'allow' );
+ update( $a ); 
+end
+
+rule 'rule1' when
+  $a: AgentDatapoint( role ==  'guest'  ) 
+then
+ $a.setPrediction( 'deny' );
+ update( $a ); 
+end
+
+rule 'rule2' when
+  $a: AgentDatapoint( role ==  'contributor' , age > 39 )
+then
+ $a.setPrediction( 'allow' );
+ update( $a ); 
 end
 ```
 
-**(d) repeat the validation process:**
-- Repeating the process, the revised DRL covered the dataset 100%.
+- the DRL is validated against the entire dataset: `Coverage=77.78%, errors=2`
+- two datapoints are not supported:
 
+  | role        | experience | age | access |
+  | ----------- | ---------- | --- | ------ |
+  | contributor | junior     | 30  | deny   |
+  | contributor | junior     | 32  | deny   |
+
+- the process will use `emla` to find rules for these two datapoints.
+- the following rules are returned:
+```
+** rules for predictor 'role':
+
+- IF role == contributor THEN deny, (coverage=1, accuracy=1, assessment=1)
+
+** rules for predictor `experience`:
+
+- IF experience == junior THEN deny, (coverage=1, accuracy=1, assessment=1)
+
+** rules for predictor `age`:
+
+- IF (age >= 30.0 AND age <= 32.0) THEN deny, (coverage=1, accuracy=1, assessment=1)
+```
+- all rules have the highest assessment 1 and can be selected by the process to update the DRL.
+- the process will select a numerical predictor to create `rule3` to showcase the integration potential with the `drools-verifier` module.
+
+```
+rule 'rule3' when
+  $a: AgentDatapoint( age >= 30.0 && age <= 32.0 ) 
+then
+ $a.setPrediction( 'deny' );
+ update( $a ); 
+end
+```
+- the DRL is then re-validated against the entire dataset: `Coverage=100%, Errors=0`.
+- at this point the learning goal is reached and the process terminates.

@@ -126,22 +126,30 @@ public abstract class DataToDrl{
                     .collect(Collectors.toList());
 
             if (!predictorsWithErrors.isEmpty()) {
-                final int[] updates = {0};
-                predictorsWithErrors.forEach(ruleName -> {
-                    List<Integer> dataIDs = dataPredictors.entrySet().stream().filter(entry -> entry.getValue().equals(ruleName)).map(entry -> entry.getKey()).collect(Collectors.toList());
-                    List<FrequencyTable> frequencyTables = emlaSession.calculateFrequencyTables(ds, trainSplit, dataIDs);
-                    Predictor predictorError = predictors.get(ruleName);
-                    List<String> otherTargetValues = ds.getUniqueTargetValues().stream().filter(value -> !value.equals(predictorError.target())).collect(Collectors.toList());
-                    for (String newTarget : otherTargetValues) {
-                        Frequency newFrequency = emlaSession.calculateFrequencyHighCoverageLowError(frequencyTables, newTarget);
-                        Predictor predictorToAdd = Predictor.fromFrequency(newFrequency, null);
-                        updates[0] = updateDrl(predictorToAdd, true) ? updates[0] +1 : updates[0];
-                    }
-                });
-                if (updates[0]>0){trainAssessment = assessDrl(dataSplit);}
-                else {break;}
+
+                int updates = 0;
+                for (String ruleName: predictorsWithErrors){
+                    updates += learnReduceErrors_Rule(ruleName);
+                }
+
+                if (updates>0){trainAssessment = assessDrl(dataSplit);}
+                else{break;}
             }
         }
+    }
+
+    private int learnReduceErrors_Rule(String ruleName){
+        int updates=0;
+        List<Integer> dataIDs = dataPredictors.entrySet().stream().filter(entry -> entry.getValue().equals(ruleName)).map(entry -> entry.getKey()).collect(Collectors.toList());
+        List<FrequencyTable> frequencyTables = emlaSession.calculateFrequencyTables(ds, trainSplit, dataIDs);
+        Predictor predictorError = predictors.get(ruleName);
+        List<String> otherTargetValues = ds.getUniqueTargetValues().stream().filter(value -> !value.equals(predictorError.target())).collect(Collectors.toList());
+        for (String newTarget : otherTargetValues) {
+            Frequency newFrequency = emlaSession.calculateFrequencyHighCoverageLowError(frequencyTables, newTarget);
+            Predictor predictorToAdd = Predictor.fromFrequency(newFrequency, null);
+            updates = updateDrl(predictorToAdd, true) ? (updates+1) : updates;
+        }
+        return updates;
     }
 
     //  extend existing DRL from data
@@ -190,8 +198,8 @@ public abstract class DataToDrl{
     }
 
     //  DRL updates during learning process
-    protected int singleDrlUpdateRun(List<Integer> caseIDs, String dataSpplit){
-        return singleDrlUpdateRun(caseIDs,null,trainSplit);
+    protected int singleDrlUpdateRun(List<Integer> caseIDs, String dataSplit){
+        return singleDrlUpdateRun(caseIDs,null,dataSplit);
     }
 
     protected int singleDrlUpdateRun(List<Integer> caseIDs, ColumnType filterByColumnType, String trainSplit){
@@ -210,8 +218,11 @@ public abstract class DataToDrl{
         if (targetFrequency==null){
             return 0;
         }else{
-            return (learningMode == Mode.NEW_DRL) ? (updateDrl(targetFrequency) ? 1 : 0)
-                    : (updateDrl(targetFrequency, ds.getDsTable().column(targetFrequency.getFeatureName()).type()) ? 1 : 0);
+            if (learningMode == Mode.NEW_DRL) {
+                return (updateDrl(targetFrequency) ? 1 : 0);
+            }else{
+                return (updateDrl(targetFrequency, ds.getDsTable().column(targetFrequency.getFeatureName()).type()) ? 1 : 0);
+            }
         }
     }
 
@@ -323,7 +334,7 @@ public abstract class DataToDrl{
             return false;
         }
         String ruleName = addPredictor(predictorToAdd);
-        DRL += "\n" + DrlConverter.predictorToDrlRule(predictorToAdd,ruleName);
+        DRL += "\n" + DrlConverter.predictorToDrlRule(predictorToAdd,ruleName,this.learningMode);
         return true;
     }
 
@@ -357,10 +368,11 @@ public abstract class DataToDrl{
 
     public void drlToFile(String fileName)
             throws IOException {
-        BufferedWriter writer = new BufferedWriter(new FileWriter(fileName));
-        writer.write(DRL);
-
-        writer.close();
+        try (FileWriter fileWriter = new FileWriter(fileName)){
+            BufferedWriter out = new BufferedWriter(fileWriter);
+            out.write(DRL);
+            out.close();
+        }
     }
 
     /*
@@ -394,84 +406,10 @@ public abstract class DataToDrl{
             List<Double> rangeValues = new ArrayList<>();
             ruleCondition.getOperatorValuePairs().forEach(p -> rangeValues.add((double)p.getRight()));
             Collections.sort(rangeValues);
-            return !trainAssessment.intGapsContainFeatureRange(ruleCondition.getFeatureName(), rangeValues.get(0).intValue(), rangeValues.get(rangeValues.size()-1).intValue());
+            return trainAssessment.intGapsContainFeatureRange(ruleCondition.getFeatureName(), rangeValues.get(0).intValue(), rangeValues.get(rangeValues.size()-1).intValue());
         }else{
             return false;
         }
     }
-
-    /*
-        old code - to be deleted
-     */
-
-    /*protected DrlAssessment drlFromData_Coverage(){
-
-        // learn frequencies to initialize DRL
-        if (singleDrlUpdateRun("train")==0){return null;}
-
-        kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
-        DrlAssessment drlAssessment = testDRL(false);
-
-        //  repeat learning new rules for datapoints not already covered
-        while (drlAssessment.getCoverage()<1){
-            List<Integer> casesNotCovered = getDatapointsNotCovered();
-
-            if (singleDrlUpdateRun(casesNotCovered)==0){
-                break;
-            } else {
-                kieBase = new KieHelper().addContent(DRL, ResourceType.DRL).build(ExecutableModelProject.class);
-                drlAssessment = testDRL(false);
-            }
-        }
-        return drlAssessment;
-    }*/
-
-    /*
-    protected DrlAssessment drlFromData_ReduceErrors(Dataset ds, List<Integer> dataIdsWithErrors){
-
-        //  list with rule-names that produce errors
-        List<String> predictorsWithErrors = dataPredictors.entrySet().stream().filter(entry -> dataIdsWithErrors.contains(entry.getKey()))
-                .map(entry -> entry.getValue())
-                .distinct()
-                .collect(Collectors.toList());
-        if (!predictorsWithErrors.isEmpty()){
-            predictorsWithErrors.forEach(ruleName->{
-                List<Integer> dataIDs = dataPredictors.entrySet().stream().filter(entry -> entry.getValue().equals(ruleName)).map(entry -> entry.getKey()).collect(Collectors.toList());
-                List<FrequencyTable> frequencyTables = emlaSession.calculateFrequencyTables(ds, trainSplit,dataIDs);
-                Predictor predictorError = predictors.get(ruleName);
-                List<String> otherTargetValues = ds.getUniqueTargetValues().stream().filter(value -> !value.equals(predictorError.target())).collect(Collectors.toList());
-                for (String newTarget : otherTargetValues){
-                    Frequency newFrequency = emlaSession.calculateFrequencyHighCoverageLowError(frequencyTables,newTarget);
-                    Predictor predictorToAdd = Predictor.fromFrequency(newFrequency,null);
-                    updateDrl(predictorToAdd,true);
-                }
-            });
-            return testDRL(false);
-        }else{
-            return null;
-        }
-
-    }*/
-
-    //  TODO: remove this method
-    /*
-    public DrlAssessment drlFromData() {
-        predictors = new HashMap<>();
-
-        this.loadFactsFromData(testSplit);
-
-
-        DrlAssessment drlAssessment = drlFromData_Coverage();
-        System.out.println("drlFromData_Coverage assessment:\n" + drlAssessment.toString());
-
-        if (drlAssessment.getErrors() > 0) {
-            DrlAssessment drlAssessmentR = drlFromData_ReduceErrors(ds, getWrongPredictions());
-            System.out.println("drlFromData_ReduceErrors errors reduced? :\n" + drlAssessment.toString());
-            return (drlAssessmentR != null ? drlAssessmentR : drlAssessment);
-        } else {
-            return drlAssessment;
-        }
-    }
-    */
 
 }

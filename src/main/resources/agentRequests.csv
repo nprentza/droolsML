@@ -2,9 +2,9 @@ role,experience,age,access
 admin,senior,40,allow
 admin,senior,45,allow
 admin,senior,42,allow
-contributor,senior,40,allow
-contributor,junior,25,deny
+contributor,senior,42,allow
 contributor,junior,30,deny
-contributor,senior,45,allow
+contributor,junior,32,deny
+contributor,senior,43,allow
 guest,junior,30,deny
 guest,senior,45,deny

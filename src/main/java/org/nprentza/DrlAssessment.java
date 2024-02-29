@@ -2,6 +2,8 @@ package org.nprentza;
 
 import org.nprentza.gapanalysis.IntGap;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +48,10 @@ public class DrlAssessment {
         this.conflicts = conflicts;
     }
 
-    public String toString(){return "Coverage=" + (this.coverage*100) + "%, errors=" + this.errors + ", conflicts=" + this.conflicts;}
+    public String toString(){
+        NumberFormat formatter = new DecimalFormat("#0.00");
+        return "Coverage=" + formatter.format(this.coverage*100) + "%, errors=" + this.errors + ", conflicts=" + this.conflicts;
+    }
 
     public void setIntGaps(Map<String, List<IntGap>> gaps){this.intGaps=gaps;}
     public Map<String, List<IntGap>> getIntGaps(){return this.intGaps;}

@@ -19,7 +19,7 @@ then
 end
 
 rule 'rule2' when
-  $a: AgentDatapoint( role ==  'contributor'  ) 
+  $a: AgentDatapoint( role ==  'contributor' , age > 39 )
 then
  $a.setPrediction( 'allow' );
  update( $a ); 
