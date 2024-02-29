@@ -1,4 +1,4 @@
-package org.nprentza;
+package org.nprentza.gapanalysis;
 
 import org.drools.drl.parser.impl.Operator;
 
@@ -36,11 +36,11 @@ public class IntGap {
         }
     }
 
-    boolean contains(int number) {
+    public boolean contains(int number) {
         return number > lowerBound && number < upperBound;
     }
 
-    boolean containsRange (int lowValue, int highValue){
+    public boolean containsRange(int lowValue, int highValue){
             for (int i = lowValue; i<=highValue; i++ ){
                 if ( !(i > lowValue && i < upperBound) ){
                     return true;

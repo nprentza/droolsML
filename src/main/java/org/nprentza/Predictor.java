@@ -4,7 +4,6 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.emla.learning.LearningUtils;
 import org.emla.learning.oner.Frequency;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -14,23 +13,19 @@ public interface Predictor {
 
     List<Pair<LearningUtils.Operator, Object>> conditions();
 
-    //String operator();
-
-    //Object value();
-
     String target();
 
     /**
      * Create a facade for the EMLA API.
      */
-    static Predictor fromFrequency(Frequency frequency) {
+    static Predictor fromFrequency(Frequency frequency, List<Pair<LearningUtils.Operator, Object>> otherConditions) {
         String field = frequency.getFeatureName(); //frequency.getPredictorValues().getKey();
-        List<Pair<LearningUtils.Operator, Object>> conditions = new ArrayList<>();
-        frequency.getOperatorValuePairs().forEach(condition -> {
-            conditions.add(condition);
-        });
+        List<Pair<LearningUtils.Operator, Object>> conditions = frequency.getOperatorValuePairs(); //new ArrayList<>();
+
+        if (otherConditions!=null){
+            conditions.addAll(otherConditions);}
         String target = frequency.getMajorityTargetClass(); // frequency.getBestTargetValue();
-        return build(field, conditions, target);
+        return build(field, conditions, target);    // build(field, conditions, target);
     }
 
     static Predictor build(String field, List<Pair<LearningUtils.Operator, Object>> conditions, String target) {
@@ -54,6 +49,19 @@ public interface Predictor {
             public String toString() {
                 return conditions.stream().map(c -> field + c.getLeft().toString() + c.getRight().toString()).collect(Collectors.joining(", "))
                         + " => " + target;
+            }
+            @Override
+            public boolean equals(Object p){
+                if (this == p) {
+                    return true;
+                }
+                if (p instanceof Predictor) {
+                    Predictor anotherPredictor = (Predictor) p;
+                    return (anotherPredictor.field().equals(this.field()) &&
+                            anotherPredictor.target().equals(this.target()) &&
+                            anotherPredictor.conditions().containsAll(this.conditions()) &&
+                            anotherPredictor.conditions().size()==this.conditions().size() );
+                }else {return false;}
             }
         };
     }
